@@ -105,6 +105,9 @@ final class VersionSet {
         edit.nextFileNumber = nextFileNumber;
         edit.lastSequence = lastSequence;
         Version next = current.apply(edit);
+        // New tables were fsynced, but their directory entries are not durable until the
+        // directory is. Without this a crash can leave the MANIFEST naming a missing table.
+        fs.syncDir(dir);
         if (manifest == null || manifest.size() > options.maxManifestBytes()) {
             Version prev = current;
             install(next);
