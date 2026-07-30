@@ -239,9 +239,12 @@ public final class RaftStorage implements AutoCloseable {
                 long off = s.offsets.get(keep);
                 while (s.offsets.size() > keep) s.offsets.removeLast();
                 s.writer.close();
-                Segment re = new Segment(s.path, s.first, fs.open(s.path, false));
-                re.file.truncate(off);
-                re.file.fsync();
+                // Truncate before constructing the writer: LogWriter appends at the size it
+                // sees when created, so a stale size would leave a gap of zeros in the log.
+                FileHandle h = fs.open(s.path, false);
+                h.truncate(off);
+                h.fsync();
+                Segment re = new Segment(s.path, s.first, h);
                 re.offsets.addAll(s.offsets);
                 segments.put(re.first, re);
             }

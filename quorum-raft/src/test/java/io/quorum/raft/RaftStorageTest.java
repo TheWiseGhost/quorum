@@ -1,11 +1,15 @@
 package io.quorum.raft;
 
 import io.quorum.common.Bytes;
+import io.quorum.common.Rng;
 import io.quorum.common.SimFileSystem;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -61,5 +65,50 @@ class RaftStorageTest {
         assertEquals(500, p.snapshot().index());
         assertEquals(10, p.entries().size());
         assertEquals(501, p.entries().getFirst().index());
+    }
+
+    /** After any crash the log is a contiguous prefix that includes every synced entry. */
+    @ParameterizedTest
+    @ValueSource(longs = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20})
+    void crashLeavesContiguousPrefixIncludingSyncedEntries(long seed) {
+        Random r = new Random(seed);
+        SimFileSystem fs = new SimFileSystem();
+        RaftStorage st = RaftStorage.open(fs, "raft", 200).storage();
+        List<Entry> model = new ArrayList<>();
+        long term = 1;
+        int synced = 0;
+        for (int round = 0; round < 8; round++) {
+            for (int op = 0; op < 30; op++) {
+                if (r.nextInt(6) == 0 && model.size() > synced + 1) {
+                    // Overwrite an unsynced suffix with a new term (like a new leader would).
+                    long from = synced + 1 + r.nextInt(model.size() - synced);
+                    term++;
+                    List<Entry> ents = entries(from, from + r.nextInt(5), term);
+                    st.append(ents);
+                    while (model.size() >= from) model.removeLast();
+                    model.addAll(ents);
+                } else {
+                    long from = model.size() + 1;
+                    List<Entry> ents = entries(from, from + r.nextInt(4), term);
+                    st.append(ents);
+                    model.addAll(ents);
+                }
+                if (r.nextInt(4) == 0) {
+                    st.sync();
+                    synced = model.size();
+                }
+            }
+            fs.crash(Rng.seeded(seed * 31 + round));
+            RaftStorage.Opened o = RaftStorage.open(fs, "raft", 200);
+            List<Entry> got = o.entries();
+            assertTrue(got.size() >= synced, "lost synced entries: have " + got.size() + " synced " + synced);
+            for (int i = 0; i < got.size(); i++) {
+                assertEquals(i + 1, got.get(i).index());
+                if (i < synced) assertEquals(model.get(i), got.get(i), "synced entry changed at " + (i + 1));
+            }
+            model = new ArrayList<>(got);
+            synced = got.size();
+            st = o.storage();
+        }
     }
 }
