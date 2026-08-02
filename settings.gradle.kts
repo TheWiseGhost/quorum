@@ -4,4 +4,5 @@ include(
     "quorum-common",
     "quorum-storage",
     "quorum-raft",
+    "quorum-kv",
 )
