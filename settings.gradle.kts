@@ -5,4 +5,5 @@ include(
     "quorum-storage",
     "quorum-raft",
     "quorum-kv",
+    "quorum-check",
 )
