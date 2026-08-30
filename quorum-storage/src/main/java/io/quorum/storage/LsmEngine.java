@@ -569,6 +569,9 @@ public final class LsmEngine implements KvEngine {
         List<String> written = new ArrayList<>();
         runAsWriter(new Writer(null, false, () -> {
             // Runs as commit leader after the flush: no write can slip in between.
+            if (fs.exists(target) && !fs.list(target).isEmpty()) {
+                throw new IllegalStateException("checkpoint target " + target + " is not empty");
+            }
             Version v = versions.current();
             fs.mkdirs(target);
             VersionEdit e = new VersionEdit();
@@ -584,7 +587,9 @@ public final class LsmEngine implements KvEngine {
                 }
             }
             String manifestName = FileNames.manifest(1);
-            try (LogWriter mw = new LogWriter(fs.open(FileSystem.join(target, manifestName), true))) {
+            FileHandle mh = fs.open(FileSystem.join(target, manifestName), true);
+            mh.truncate(0); // never append to a stale manifest
+            try (LogWriter mw = new LogWriter(mh)) {
                 mw.add(e.encode());
                 mw.sync();
             }

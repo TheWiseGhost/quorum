@@ -82,12 +82,15 @@ public final class SimFileSystem implements FileSystem {
 
     @Override
     public synchronized boolean exists(String path) {
-        return current.containsKey(path) || dirs.contains(path);
+        return current.containsKey(path) || isDirectory(path);
     }
 
     @Override
     public synchronized boolean isDirectory(String path) {
-        return dirs.contains(path);
+        if (dirs.contains(path)) return true;
+        String prefix = path + "/";
+        for (String p : current.keySet()) if (p.startsWith(prefix)) return true;
+        return false;
     }
 
     @Override
@@ -198,6 +201,8 @@ public final class SimFileSystem implements FileSystem {
         }
         current.clear();
         current.putAll(durable);
+        // Directories are modelled as durable: a file that survived keeps its parent directory.
+        for (String p : current.keySet()) mkdirs(FileSystem.parent(p));
     }
 
     /** Flips one random bit in a durable file (for corruption-detection tests). */
