@@ -22,7 +22,11 @@ final class InvariantChecker implements KvNode.Observer {
     }
 
     private final SimCluster cluster;
-    /** index → {term, content hash} of every entry any node has applied (hence committed). */
+    /**
+     * index → {entry term, content hash, observed term} for every entry any node has applied
+     * (hence committed). The observed term is the applying node's term at that moment, an upper
+     * bound on the term in which the entry was committed.
+     */
     private final TreeMap<Long, long[]> committed = new TreeMap<>();
     private final Map<Long, Long> leaderOfTerm = new TreeMap<>();
     int leaderChanges;
@@ -41,7 +45,7 @@ final class InvariantChecker implements KvNode.Observer {
         long[] prev = committed.get(e.index());
         long h = hash(e);
         if (prev == null) {
-            committed.put(e.index(), new long[]{e.term(), h});
+            committed.put(e.index(), new long[]{e.term(), h, cluster.node(nodeId).node.raft().term()});
         } else if (prev[0] != e.term() || prev[1] != h) {
             throw new Violation("State Machine Safety: node " + nodeId + " applied " + e + " at index " + e.index()
                     + " but another node applied term " + prev[0] + " there");
@@ -59,6 +63,9 @@ final class InvariantChecker implements KvNode.Observer {
         }
         RaftNode leader = cluster.node(nodeId).node.raft();
         for (Map.Entry<Long, long[]> c : committed.tailMap(leader.snapshotIndex(), false).entrySet()) {
+            // Only entries committed in an earlier term must be present. A leader elected in
+            // term 7 after a long pause need not know entries another leader committed in term 10.
+            if (c.getValue()[2] >= term) continue;
             long t = leader.termAt(c.getKey());
             if (t != c.getValue()[0]) {
                 throw new Violation("Leader Completeness: new leader " + nodeId + " (term " + term + ") has term " + t
