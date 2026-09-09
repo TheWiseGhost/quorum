@@ -234,6 +234,11 @@ public final class LsmEngine implements KvEngine {
             } else if (versions.current().files(0) >= options.l0StopWritesTrigger()) {
                 waitOrWorkInline();
             } else {
+                // Sync the old WAL before any write reaches the new one. Unsynced data in two
+                // files can be lost independently: without this a crash could keep a later write
+                // (new log) while dropping an earlier one (old log), so recovery would not be a
+                // prefix of history. The replicated state machine depends on prefix recovery.
+                log.sync();
                 long newLog = versions.newFileNumber();
                 FileHandle h = fs.open(FileSystem.join(dir, FileNames.log(newLog)), true);
                 fs.syncDir(dir);
