@@ -7,4 +7,5 @@ include(
     "quorum-kv",
     "quorum-check",
     "quorum-sim",
+    "quorum-net",
 )
