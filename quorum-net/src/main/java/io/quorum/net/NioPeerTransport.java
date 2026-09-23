@@ -250,6 +250,9 @@ public final class NioPeerTransport implements Transport, AutoCloseable {
         selector.wakeup();
         try {
             thread.join(2_000);
+            // Close every channel, including accepted inbound ones: closing the selector only
+            // deregisters them, and a peer would keep writing into a socket nobody reads.
+            for (SelectionKey key : selector.keys()) key.channel().close();
             for (Outbound o : outbound.values()) if (o.ch != null) o.ch.close();
             server.close();
             selector.close();
