@@ -10,4 +10,5 @@ include(
     "quorum-net",
     "quorum-server",
     "quorum-client",
+    "quorum-bench",
 )
