@@ -68,6 +68,7 @@ public final class KvNode implements AutoCloseable {
     private RaftNode.Role lastRole;
     private long lastTerm;
     private long snapshots;
+    private HardState persistedHardState;
 
     public KvNode(NodeConfig cfg, FileSystem fs, Scheduler loop, Scheduler background, Transport transport, Rng rng,
                   Observer observer) {
@@ -85,6 +86,7 @@ public final class KvNode implements AutoCloseable {
         }
         this.raft = new RaftNode(cfg.raft().withBugs(cfg.bugs()), rng, cfg.bootstrap(),
                 new RaftNode.Persisted(opened.hardState(), snap, opened.entries(), sm.appliedIndex()));
+        this.persistedHardState = opened.hardState();
         this.lastRole = raft.role();
         this.lastTerm = raft.term();
     }
@@ -214,7 +216,14 @@ public final class KvNode implements AutoCloseable {
             if (rd.hardState() != null) {
                 HardState hs = rd.hardState();
                 if (cfg.bug(PlantedBug.VOTE_NOT_PERSISTED)) hs = new HardState(hs.term(), 0, hs.commit()); // PLANTED BUG
-                storage.saveHardState(hs);
+                // Term and vote must be durable before any message that depends on them. The
+                // commit index need not be: a restarted node relearns it from the leader and
+                // re-applies idempotently. Skipping commit-only updates saves two fsyncs per batch.
+                if (persistedHardState == null || hs.term() != persistedHardState.term()
+                        || hs.votedFor() != persistedHardState.votedFor()) {
+                    storage.saveHardState(hs);
+                    persistedHardState = hs;
+                }
             }
             rd.sendAfterPersist().forEach(transport::send);
 
