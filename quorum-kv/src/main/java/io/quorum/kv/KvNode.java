@@ -217,10 +217,14 @@ public final class KvNode implements AutoCloseable {
                 HardState hs = rd.hardState();
                 if (cfg.bug(PlantedBug.VOTE_NOT_PERSISTED)) hs = new HardState(hs.term(), 0, hs.commit()); // PLANTED BUG
                 // Term and vote must be durable before any message that depends on them. The
-                // commit index need not be: a restarted node relearns it from the leader and
-                // re-applies idempotently. Skipping commit-only updates saves two fsyncs per batch.
+                // commit index usually need not be: a restarted node relearns it from the leader
+                // and re-applies idempotently, and skipping commit-only updates saves two fsyncs
+                // per batch. The exception is a membership change. A restarted node rebuilds its
+                // configuration by replaying conf entries up to the persisted commit, so letting
+                // it lag several changes behind breaks the quorum-overlap argument (BUGS.md #6).
+                boolean confCommitted = rd.committed().stream().anyMatch(e -> e.type() == Entry.Type.CONF_CHANGE);
                 if (persistedHardState == null || hs.term() != persistedHardState.term()
-                        || hs.votedFor() != persistedHardState.votedFor()) {
+                        || hs.votedFor() != persistedHardState.votedFor() || confCommitted) {
                     storage.saveHardState(hs);
                     persistedHardState = hs;
                 }
