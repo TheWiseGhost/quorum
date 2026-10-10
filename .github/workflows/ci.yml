@@ -1,0 +1,53 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "17 6 * * *" # nightly deep simulation sweep
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Unit, integration and simulation smoke tests
+        run: ./gradlew build
+      - name: Simulation sweep (1,000 seeds)
+        if: github.event_name != 'schedule'
+        run: ./gradlew :quorum-sim:simSweep -Pseeds=1000 -PsimArgs="--duration 10000"
+      - name: Planted bugs must all be caught
+        if: github.event_name != 'schedule'
+        run: ./gradlew :quorum-sim:plantedBugs -PmaxSeeds=2500
+      - name: Upload non-linearizable histories
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sim-failures
+          path: quorum-sim/sim-failures/
+
+  nightly:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Deep sweep (100,000 seeds, fresh range each night)
+        run: |
+          START=$(( ($(date +%s) / 86400 % 1000) * 100000 + 1 ))
+          ./gradlew :quorum-sim:simSweep -Pseeds=100000 -Pstart=$START -PsimArgs="--duration 20000"
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: sim-failures
+          path: quorum-sim/sim-failures/
